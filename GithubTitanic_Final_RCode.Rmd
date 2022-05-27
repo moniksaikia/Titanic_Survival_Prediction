@@ -1,0 +1,260 @@
+---
+title: "Untitled"
+author: "Monikuntala_Saikia"
+date: "5/27/2022"
+output:
+  word_document: default
+  pdf_document: default
+---
+
+```{r setup}
+knitr::opts_chunk$set(echo = TRUE)
+options(scipen=10000)
+options(digits = 5)
+library(readxl)
+library(tidyverse)
+library(mi)
+library(dplyr)
+library(car)
+library(readr)
+library(ggplot2)
+library(lattice)
+library(caret)
+library(GGally)
+library(ROCR)
+library(pROC)
+```
+
+```{r Data}
+TitanicRaw <- read_excel("Titanic_data.xlsx")
+nrow(TitanicRaw)
+summary(TitanicRaw)
+```
+```{r subset}
+TitanicSelect <- select(TitanicRaw, c(2,3,4,5,6,7,8,10,12))
+#view(TitanicSelect)
+```
+
+```{r Histograms}
+hist(TitanicSelect$Survived)
+hist(TitanicSelect$Pclass)
+hist(TitanicSelect$Age)
+hist(TitanicSelect$SibSp) 
+hist(TitanicSelect$Parch) 
+hist(TitanicSelect$Fare)
+```
+
+```{r barchart}
+ggplot(data=TitanicSelect, aes(x=Pclass))+ geom_bar()
+ggplot(data=TitanicSelect, aes(x=Sex)) + geom_bar()
+ggplot(data=TitanicSelect, aes(x=SibSp)) + geom_bar()
+ggplot(data=TitanicSelect, aes(x=Parch)) + geom_bar()
+ggplot(data=TitanicSelect, aes(x=Embarked)) + geom_bar()
+```
+
+```{r Count of people}
+#Select title from passenger names:
+colnames(TitanicSelect)
+TitanicSelect$title<-gsub('(.*, )|(\\..*)', '', TitanicSelect$Name)
+
+#Showing number of title counts by sex
+table(TitanicSelect$Sex, TitanicSelect$title)
+```
+
+```{r names2}
+#Transformation of title into various categories based on similarities:
+
+#Titles in low numbers are combined as rare_title:
+Rare_Title <- c('Don', 'Dona', 'Dr', 'Jonkheer', 'Lady',  'Rev', 'Sir', 'the Countess')
+Military_Title <- c('Capt', 'Col', 'Major' )
+
+TitanicSelect$title[TitanicSelect$title=='Mlle'] <- 'Miss'
+TitanicSelect$title[TitanicSelect$title=='Ms'] <- 'Miss'
+TitanicSelect$title[TitanicSelect$title=='Mme'] <- 'Mrs'
+
+TitanicSelect$title[TitanicSelect$title %in% Military_Title] <- 'Military_Title'
+TitanicSelect$title[TitanicSelect$title %in% Rare_Title] <- 'Unique_Title'
+str(TitanicSelect)
+
+#to know the final count based on sex:
+table(TitanicSelect$Sex, TitanicSelect$title)
+ggplot(data=TitanicSelect, aes(x = title)) + geom_bar(fill = "grey")
+```
+```{r missing}
+#Find the number of missing values:
+sapply(TitanicSelect, function(x) sum(is.na(x)))
+```
+```{r  missing imputation}
+#fare based on mean
+avg.Fare=mean(TitanicSelect$Fare, na.rm=T)
+TitanicSelect$Fare[is.na(TitanicSelect$Fare)] = avg.Fare
+
+#Embarked to Q
+TitanicSelect$Embarked[is.na(TitanicSelect$Embarked)] = 'Q'
+
+#Age based on mean of title
+Titanicnew <- TitanicSelect %>% group_by(title) %>% mutate(Age=if_else(is.na(Age), mean(Age, na.rm = TRUE), Age))
+
+sapply(TitanicSelect, function(x) sum(is.na(x)))
+```
+
+```{r deleteMissing}
+Titanicnew<-  Titanicnew[complete.cases(Titanicnew), ]
+nrow(Titanicnew)
+```
+```{r Age transform}
+hist(sqrt(TitanicSelect$Age))
+hist(log(TitanicSelect$Age))
+```
+
+```{r Age Outlier check using boxplot}
+#Treating the outliers for Age Variable:
+Age_plot = boxplot(Titanicnew$Age)
+Age_plot$stats
+quantile(Titanicnew$Age, seq(0, 1, 0.02))
+```
+
+```{r Age outlier treatment}
+Titanicnew$Age = ifelse(Titanicnew$Age>=61, 61, Titanicnew$Age) #98% in 61 (61>57 which is 75th percentile)
+Titanicnew$Age = ifelse(Titanicnew$Age<=5, 5, Titanicnew$Age) #2% in 5 (5 is in 25th percentile)
+boxplot(Titanicnew$Age, ylab= "Age", xlab = "Passengers", main = "Titanicnew$Age", title = TRUE)
+hist(Titanicnew$Age)
+```
+
+```{r Fare outlier check}
+Fare_plot = boxplot(Titanicnew$Fare)
+Fare_plot$stats
+quantile(Titanicnew$Fare, seq(0, 1, 0.02))
+```
+
+```{r Fare outlier treatment}
+Titanicnew$Fare = ifelse(Titanicnew$Fare>=109, 109, Titanicnew$Fare) #(95%)
+boxplot(Titanicnew$Fare)
+quantile(Titanicnew$Fare, seq(0, 1, 0.02))
+```
+
+```{r Correlation matrix}
+ggcorr(Titanicnew,
+       nbreaks = 6,
+       label = TRUE,
+       label_size = 3,
+       color = 'grey50')
+```
+
+```{r}
+#coding the categorical variables:
+
+Titanicnew$Sex2 <- ifelse(Titanicnew$Sex == 'male', 1,0)
+
+Titanicnew$Embarked2 <- ifelse(Titanicnew$Embarked == 'C', 1,
+                          ifelse(Titanicnew$Embarked == 'S',2,0))
+
+Titanicnew$title2 <- ifelse(Titanicnew$title == 'Mr', 1,
+                       ifelse(Titanicnew$title == 'Mrs',2,
+                       ifelse(Titanicnew$title == 'Miss',3,
+                       ifelse(Titanicnew$title == 'Master',4,
+                       ifelse(Titanicnew$title == 'Unique_Title',5,0)))))
+
+```
+
+```{r}
+Titanicnew$Sex2 <- factor(Titanicnew$Sex2)
+Titanicnew$Embarked2 <- factor(Titanicnew$Embarked2)
+Titanicnew$title2 <- factor(Titanicnew$title2)
+
+#Titanicnew$Pclass <- as.factor(Titanicnew$Pclass)
+#Titanicnew$Age <- as.factor(Titanicnew$Age)
+#Titanicnew$SibSp <- as.factor(Titanicnew$SibSp)
+#Titanicnew$Parch <- as.factor(Titanicnew$Parch)
+#Titanicnew$Fare <- as.factor(Titanicnew$Fare)
+
+colnames(Titanicnew)
+```
+
+```{r select columns}
+TitanicFinal <- select(Titanicnew,c("title", "Survived", "Pclass", "Sex", "Age", "SibSp", "Parch", "Fare",  "Sex2", "Embarked2", "title2"))
+```
+
+```{r Data Partitioning}
+set.seed(12345)
+t= sample(1:nrow(TitanicFinal), 0.7*nrow(TitanicFinal))
+Titanictrain = TitanicFinal[t,]
+Titanictest = TitanicFinal[-t,]
+nrow(Titanictrain)
+nrow(Titanictest)
+```
+
+```{r Model1}
+trainmodel1<-glm(Survived~., data=Titanictrain, family=binomial(link = logit))
+summary(trainmodel1)
+exp(cbind(Odds_Ratio_SurviveOrNot=coef(trainmodel1), confint(trainmodel1)))
+```
+```{r Model2}
+trainmodel2<-glm(Survived~Pclass + Age + SibSp + Sex2 ,data=Titanictrain, family = binomial(link = logit))
+summary(trainmodel2)
+exp(cbind(Odds_Ratio_SurviveOrNot=coef(trainmodel2), confint(trainmodel2)))
+```
+```{r Model3}
+trainmodel3<-glm(Survived~Pclass + Age + SibSp +Parch +Fare + Sex2 + Embarked2 ,data=Titanictrain, family = binomial(link = logit))
+summary(trainmodel3)
+exp(cbind(Odds_Ratio_SurviveOrNot=coef(trainmodel3), confint(trainmodel3)))
+```
+```{r Model4}
+trainmodel4<-glm(Survived~Pclass + Age + SibSp + Parch + Sex2 ,data=Titanictrain, family = binomial(link = logit))
+summary(trainmodel4)
+exp(cbind(Odds_Ratio_SurviveOrNot=coef(trainmodel4), confint(trainmodel4)))
+```
+```{r Model5}
+trainmodel5<-glm(Survived~Pclass + Age + SibSp + Sex2 + title2 ,data=Titanictrain, family = binomial(link = logit))
+summary(trainmodel5)
+exp(cbind(Odds_Ratio_SurviveOrNot=coef(trainmodel5), confint(trainmodel5)))
+```
+
+```{r train model response comparison}
+#Scoring the prediction rate:
+Titanictrain$score1 <- predict(trainmodel2, newdata=subset(Titanictrain, select=c('Pclass', 'Age', 'SibSp', 'Sex2')), type="response")
+head(Titanictrain$score1)
+```
+
+```{r Model Confusion Matrix}
+Titanictrain$prediction1 <- ifelse(Titanictrain$score1>=0.5, 1, 0)
+table(factor(Titanictrain$prediction1),
+      factor(Titanictrain$Survived))
+
+```
+
+
+```{r}
+ROCRpred1 <- prediction(Titanictrain$prediction1, Titanictrain$Survived)
+ROCRperf1 <- performance(ROCRpred1, measure = "tpr", x.measure = "fpr")
+plot(ROCRperf1, colorize = TRUE, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,1,0.1))
+abline(a=0, b= 1)
+auc(Titanictrain$Survived, Titanictrain$prediction1)
+```
+
+##Model 5- trainmodel5 with Pclass + Age + SibSp + Sex2 + title2 gives the better prediction on train model, but does not deliver clear results on statistical significance of predictor values. Model 2- trainmodel2 with Pclass + Age + SibSp + Sex2 gives almost same accuracy with proper allocation of statistical significance and CI values.
+
+```{r test CF}
+Titanictest$score_test<-predict(trainmodel2, Titanictest, type = "response")
+Titanictest$prediction <- ifelse(Titanictest$score_test>=0.5, 1, 0)
+
+Titanictest$Survived2 <- as.factor(Titanictest$Survived)
+Titanictest$prediction2 <- as.factor(Titanictest$prediction)
+confusionMatrix(Titanictest$prediction2,Titanictest$Survived2)
+```
+```{r test AUC}
+ROCRpred_test <- prediction(Titanictest$prediction, Titanictest$Survived)
+ROCRperf_test <- performance(ROCRpred_test, measure = "tpr", x.measure = "fpr")
+plot(ROCRperf_test, colorize = TRUE, text.adj = c(-0.2,1.7), print.cutoffs.at = seq(0,1,0.1))
+abline(a=0, b= 1)
+auc(Titanictest$Survived, Titanictest$prediction)
+```
+
+```{r Residual Plots}
+titanic.res <-residuals(trainmodel2)
+
+ggplot(data=Titanictrain, aes(x=Pclass, y=titanic.res))+geom_point()
+ggplot(data=Titanictrain, aes(x=Age, y=titanic.res))+geom_point()
+ggplot(data=Titanictrain, aes(x=SibSp, y=titanic.res))+geom_point()
+ggplot(data=Titanictrain, aes(x=Sex2, y=titanic.res))+geom_point()
+```
